@@ -1,24 +1,17 @@
 package com.example.catapulta
 
-import OpenMeteoApi
-import android.Manifest
-import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.content.pm.ResolveInfo
 import android.location.Location
-import android.location.LocationManager
 import android.os.Bundle
 import android.util.Log
 import android.widget.ImageView
 import android.widget.Toast
 import androidx.activity.ComponentActivity
-import androidx.activity.result.contract.ActivityResultContracts
-import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
-import com.google.android.gms.location.LocationServices
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.launch
@@ -45,22 +38,10 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun getCurrentLocation(context: Context) : Location? {
-        val locationManager = context.getSystemService(Context.LOCATION_SERVICE) as LocationManager
-
-        if (ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
-            val networkLocation = locationManager.getLastKnownLocation(LocationManager.NETWORK_PROVIDER)
-            return networkLocation
-        }
-
-        return null
-    }
-
     private suspend fun getIpLocation(): Pair<Double, Double>? = withContext(Dispatchers.IO) {
         try {
             val url = URL("https://ipinfo.io/json")
             val connection = url.openConnection() as HttpURLConnection
-            connection.requestMethod = "GET"
             connection.connectTimeout = 5000
             connection.readTimeout = 5000
 
@@ -78,8 +59,8 @@ class MainActivity : ComponentActivity() {
                 Log.i("Weather", "IPInfo response: $response")
 
                 val json = JSONObject(response)
-                val loc = json.optString("loc", null) // e.g. "37.3860,-122.0840"
-                if (loc != null && loc.contains(",")) {
+                val loc = json.optString("loc", "") // e.g. "37.3860,-122.0840"
+                if (loc != "" && loc.contains(",")) {
                     val (latStr, lonStr) = loc.split(",")
                     val lat = latStr.toDoubleOrNull()
                     val lon = lonStr.toDoubleOrNull()
@@ -106,31 +87,26 @@ class MainActivity : ComponentActivity() {
         val api = retrofit.create(OpenMeteoApi::class.java)
 
         lifecycleScope.launch {
-            var location = getCurrentLocation(this@MainActivity)
-
-            if (location == null) {
-                Log.i("Weather", "Location from Android API is null, trying IP geolocation fallback...")
+                var location: Location? = null
                 val ipLocation = getIpLocation()
                 if (ipLocation != null) {
-                    // Create a fake Location object to keep API consistent
                     location = Location("ip-api").apply {
                         latitude = ipLocation.first
                         longitude = ipLocation.second
                     }
                 }
-            }
 
             if (location != null) {
                 try {
                     val response = api.getWeather(location.latitude, location.longitude)
                     val temp = response.current.temperature
                     val condition = translateWeatherType(response.current.weatherCode)
-                    Log.d("Weather", "Temperature: $temp°C, Condition: $condition")
+                    Toast.makeText(this@MainActivity, "Temperature: $temp°C, Condition: $condition", Toast.LENGTH_LONG).show()
                 } catch (e: Exception) {
                     Log.e("Weather", "Error: ${e.message}")
                 }
             } else {
-                Log.i("Weather", "Location still null after fallback. Cannot get weather.")
+                Log.i("Weather", "Location null. Cannot get weather.")
             }
         }
 
@@ -166,29 +142,13 @@ class MainActivity : ComponentActivity() {
         recyclerView.adapter = adapter
     }
 
-    private val requestPermissionLauncher = registerForActivityResult(
-        ActivityResultContracts.RequestPermission()
-    ) { isGranted ->
-        if (!isGranted) {
-            Toast.makeText(this, "Location access is required for weather.", Toast.LENGTH_SHORT).show()
-        }
-    }
-
-    private fun requestCoarseLocationPermission() {
-        if (ContextCompat.checkSelfPermission(
-                this, Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED
-        ){
-            requestPermissionLauncher.launch(Manifest.permission.ACCESS_COARSE_LOCATION)
-        }
-    }
-
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.main)
-        requestCoarseLocationPermission()
 
         val installedApps = retrieveAppList()
         setupAppDrawer(installedApps)
+
         generateWeather()
     }
 }

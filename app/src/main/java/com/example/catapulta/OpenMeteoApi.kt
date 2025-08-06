@@ -1,3 +1,5 @@
+package com.example.catapulta
+
 import retrofit2.http.GET
 import retrofit2.http.Query
 
